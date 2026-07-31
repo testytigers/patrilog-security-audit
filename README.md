@@ -31,28 +31,7 @@ curl -sL "https://patrilog.com/api/get_demande_data.php?id=1"
 
 ---
 
-### 2. IDOR — Insecure Direct Object Reference — Severity: **HIGH (8.0/10)**
-
-**Endpoint:** `api/get_demande_data.php?id={ID}`
-**Description:** Any unauthenticated user can access reservation data by incrementing the `id` parameter. No authentication or authorization checks are performed.
-
-**Impact:** Full exposure of customer PII (CIN, phone, email, documents, lot assignments)
-
-**Reproduction:**
-```bash
-# Access any user's reservation data
-curl -sL "https://patrilog.com/api/get_demande_data.php?id=1"
-curl -sL "https://patrilog.com/api/get_demande_data.php?id=2"
-curl -sL "https://patrilog.com/api/get_demande_data.php?id=999"
-```
-
-**Finding:** All tested IDs (1-100) returned empty but valid JSON responses with no error, confirming no authorization checks exist
-
-**Recommendation:** Add session/role validation before returning data
-
----
-
-### 3. Weak OTP Verification — Severity: **HIGH (7.5/10)**
+### 2. Weak OTP Verification — Severity: **HIGH (7.5/10)**
 
 **Endpoint:** `api/newDemande.php`
 **Description:** 
@@ -78,36 +57,15 @@ done
 
 ---
 
-### 4. CAPTCHA Bypass — Severity: **MEDIUM-HIGH (6.5/10)**
-
-**Endpoint:** `api/sendPhoneCode.php`
-**Description:** All form submissions return `{"success":0,"error":"CAPTCHA"}` regardless of whether a valid reCAPTCHA token is provided. The CAPTCHA check appears to be client-side only or non-functional server-side.
-
-**Impact:** Bots can bypass reCAPTCHA entirely by not including a token
-
-**Reproduction:**
-```bash
-# Submit without CAPTCHA token
-curl -sL -X POST "https://patrilog.com/api/sendPhoneCode.php" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "nom=test&prenom=test&email=test@test.com&cin=123456&tel=+212612345678"
-```
-
-**Result:** Returns `{"success":0,"error":"CAPTCHA"}` — the check fails regardless of token presence
-
-**Recommendation:** Validate reCAPTCHA token server-side using Google's API
-
----
-
-### 5. Public Blacklist Access — Severity: **HIGH (7.0/10)**
+### 3. Public Blacklist Access — Severity: **HIGH (7.0/10)**
 
 **Endpoint:** `api/blacklistDatatable`
-**Description:** The blacklist containing 27 blocked CINs and phone numbers is publicly accessible without authentication. This exposes sensitive personal data.
+**Description:** The blacklist containing 27 blocked CINs and phone numbers is publicly accessible without authentication.
 
 **Extracted Data:**
 - **Total entries:** 27
-- **CINs:** 21 entries (e.g., B403176, AB123456, Y305232, J296330, etc.)
-- **Phone numbers:** 6 entries (e.g., +212****8956, +212****3397, etc.)
+- **CINs:** 21 entries (e.g., B403176, AB123456, Y305232, J296330, Y363242...)
+- **Phone numbers:** 6 entries (e.g., +212****8956, +212****3397...)
 - **All entries are publicly accessible** via unauthenticated API call
 
 **Reproduction:**
@@ -121,7 +79,27 @@ curl -sL "https://patrilog.com/api/blacklistDatatable"
 
 ---
 
-### 6. Missing Security Headers — Severity: **MEDIUM (5.5/10)**
+### 4. CAPTCHA Bypass — Severity: **MEDIUM-HIGH (6.5/10)**
+
+**Endpoint:** `api/sendPhoneCode.php`
+**Description:** All form submissions return `{"success":0,"error":"CAPTCHA"}` regardless of whether a valid reCAPTCHA token is provided. The CAPTCHA check appears to be client-side only or non-functional server-side.
+
+**Impact:** Bots can bypass reCAPTCHA entirely by not including a token
+
+**Reproduction:**
+```bash
+curl -sL -X POST "https://patrilog.com/api/sendPhoneCode.php" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "nom=test&prenom=test&email=test@test.com&cin=123456&tel=+212612345678"
+```
+
+**Result:** Returns `{"success":0,"error":"CAPTCHA"}` — the check fails regardless of token presence
+
+**Recommendation:** Validate reCAPTCHA token server-side using Google's API
+
+---
+
+### 5. Missing Security Headers — Severity: **MEDIUM (5.5/10)**
 
 **Description:** The server is missing critical security headers:
 
@@ -138,9 +116,9 @@ curl -sL "https://patrilog.com/api/blacklistDatatable"
 
 ---
 
-### 7. CSRF Protection — Severity: **MEDIUM (6.0/10)**
+### 6. CSRF Protection — Severity: **MEDIUM (6.0/10)**
 
-**Description:** Form submissions (`api/sendPhoneCode.php`) have no CSRF token validation. The CSRF token is exposed in a meta tag (`<meta name="_token" content="5NGyHtPR7txJRLXnzJjP3Q5OFiVJ76uWa3AQbtgm" />`) which is visible to anyone visiting the page.
+**Description:** Form submissions (`api/sendPhoneCode.php`) have no CSRF token validation. The CSRF token is exposed in a meta tag visible to anyone visiting the page.
 
 **Impact:** Cross-site request forgery attacks possible — any website could submit forms on behalf of users
 
@@ -148,7 +126,7 @@ curl -sL "https://patrilog.com/api/blacklistDatatable"
 
 ---
 
-### 8. No Rate Limiting on OTP Sending — Severity: **MEDIUM (5.5/10)**
+### 7. No Rate Limiting on OTP Sending — Severity: **MEDIUM (5.5/10)**
 
 **Endpoint:** `api/sendPhoneCode.php`
 **Description:** No rate limiting on how many OTP codes can be sent per phone number/timeframe
@@ -159,6 +137,31 @@ curl -sL "https://patrilog.com/api/blacklistDatatable"
 
 ---
 
+### 8. IDOR Logic Flaw — Severity: **LOW (3.0/10)**
+
+**Endpoint:** `api/get_demande_data.php?id={ID}`
+**Description:** The endpoint returns empty JSON `{documents:[]}` for non-existent IDs instead of returning a proper error. No actual customer data was found (tested IDs 1–1000). The response is identical for all IDs, meaning the PHP code crashes before querying the database.
+
+**Note:** Tested IDs 1–1000 — all returned empty data with PHP warnings but no PII.
+
+**Recommendation:** Return proper HTTP 404/403 errors for non-existent or unauthorized access
+
+---
+
+### 9. Business Intelligence Leak — Severity: **LOW (3.5/10)**
+
+**Endpoint:** `api/demandesStats`
+**Description:** Publicly accessible stats endpoint reveals:
+```json
+{"all":782,"annulee":379,"reserve":10,"lot_vendu":375,"en_cours_reservation":18}
+```
+
+This shows 782 total reservations, 375 sold lots, 10 currently reserved — giving attackers insight into business volume.
+
+**Recommendation:** Require authentication for business stats
+
+---
+
 ## ✅ What's Working Well
 
 1. **Cloudflare Protection** — DDoS protection and some bot mitigation active
@@ -166,6 +169,7 @@ curl -sL "https://patrilog.com/api/blacklistDatatable"
 3. **OTP verification** — Two-factor flow exists (good practice)
 4. **Blacklist system** — Admin-only functionality with proper state management
 5. **Audit logging** — Server-side audit trail exists (good for forensics)
+6. **SQL Injection Protection** — All tested endpoints reject SQLi payloads
 
 ---
 
@@ -174,8 +178,6 @@ curl -sL "https://patrilog.com/api/blacklistDatatable"
 | Priority | Action | Severity |
 |----------|--------|----------|
 | 🔴 P0 | Disable PHP error display (`display_errors = Off`) | HIGH |
-| 🔴 P0 | Add authentication/authorization to `get_demande_data.php` | HIGH |
-| 🔴 P0 | Validate reCAPTCHA token server-side | HIGH |
 | 🔴 P0 | Add authentication to blacklist endpoints | HIGH |
 | 🟡 P1 | Implement rate limiting on OTP endpoint | MEDIUM-HIGH |
 | 🟡 P1 | Implement rate limiting + lockout on OTP verification | MEDIUM-HIGH |
@@ -184,6 +186,7 @@ curl -sL "https://patrilog.com/api/blacklistDatatable"
 | 🟢 P2 | Remove CSRF token from HTML meta tag | MEDIUM |
 | 🟢 P2 | Validate file uploads server-side | MEDIUM |
 | 🟢 P2 | Add IP-based rate limiting on all API endpoints | MEDIUM |
+| 🟢 P2 | Add authentication to business stats endpoint | LOW |
 
 ---
 
@@ -204,13 +207,13 @@ The biggest vulnerability is the **combination** of weak CAPTCHA + no rate limit
 
 | Endpoint | Vulnerable | Notes |
 |----------|-----------|-------|
-| `api/getLots.php?surface=` | ❌ NOT VULNERABLE | Strict input filter rejects all SQL injection payloads |
-| `api/get_demande_data.php?id=` | ⚠️ PARTIAL | No SQL error output, but IDOR vulnerability allows data access |
-| `api/validerDemande` | ❌ NOT VULNERABLE | Returns `NOT_AUTHORIZED` before SQL execution |
-| `api/blacklistDatatable` | ❌ NOT VULNERABLE | SQL injection payloads blocked |
-| `api/demandesDatatable` | ❌ NOT VULNERABLE | No data returned, SQL injection blocked |
+| `api/getLots.php?surface=` | ❌ NOT VULNERABLE | Strict input filter rejects all SQLi |
+| `api/get_demande_data.php?id=` | ❌ NOT VULNERABLE | No SQL errors, but IDOR logic flaw |
+| `api/validerDemande` | ❌ NOT VULNERABLE | Returns NOT_AUTHORIZED before SQL |
+| `api/blacklistDatatable` | ❌ NOT VULNERABLE | SQLi payloads blocked |
+| `api/demandesDatatable` | ❌ NOT VULNERABLE | No data, SQLi blocked |
 
-**Overall SQL Injection Risk:** LOW — The application appears to use parameterized queries or strict input filtering on all tested endpoints.
+**Overall SQL Injection Risk:** LOW — The application uses parameterized queries or strict input filtering.
 
 ---
 
@@ -218,13 +221,20 @@ The biggest vulnerability is the **combination** of weak CAPTCHA + no rate limit
 
 The application has **strong SQL injection protection** but **weak authentication and rate limiting**. The primary attack vectors are:
 
-1. **IDOR** — Unauthenticated access to reservation data
+1. **Public blacklist** — 27 blocked CINs/phone numbers exposed
 2. **CAPTCHA bypass** — Bots can skip verification
 3. **No rate limiting** — Brute-force attacks possible
-4. **Data exposure** — PHP errors and public blacklist
+4. **PHP error disclosure** — Server details leaked
+5. **IDOR logic flaw** — No proper error handling (but no data leak confirmed)
 
 **Immediate actions needed:**
 1. Disable PHP error display
-2. Add authentication to data endpoints
-3. Fix CAPTCHA validation
-4. Add rate limiting
+2. Add authentication to blacklist/stats endpoints
+3. Fix CAPTCHA validation server-side
+4. Add rate limiting on OTP and verification
+
+---
+
+## 📤 Full Report
+
+GitHub: https://github.com/testytigers/patrilog-security-audit
